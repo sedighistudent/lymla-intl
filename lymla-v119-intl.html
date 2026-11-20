@@ -16390,6 +16390,172 @@ html[data-theme="dark"] #hzStreak { color: #F4F4F5; }
   window.__hzAiByokPanel = panel;
 })();
 </script>
+<script>/* ============================================================
+   LYMLA International — USDT (BNB Smart Chain) checkout card.
+   Injected ONLY into the intl build by build_intl.py. Appends a
+   payment card to the subscription panel (#hzSubPanel): create an
+   order on the lymla-pay worker, show the exact amount + wallet
+   address, poll for on-chain confirmation, then activate the
+   issued licence code through the app's own activation path.
+   ============================================================ */
+(function () {
+  'use strict';
+  var API = 'https://lymla-pay.lymla.workers.dev';
+  var PLANS = [
+    { id: 'monthly', label: 'Monthly — $5', days: '30 days' },
+    { id: 'yearly', label: 'Yearly — $29', days: '365 days' }
+  ];
+  var plan = 'monthly';
+  var order = null;
+  var pollTimer = null;
+  try { var saved = localStorage.getItem('hz_usdt_order'); if (saved) order = JSON.parse(saved); } catch (e) {}
+
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function copyText(t, btn) {
+    function done() { if (btn) { var o = btn.textContent; btn.textContent = 'Copied ✓'; setTimeout(function () { btn.textContent = o; }, 1200); } }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done).catch(done);
+    else {
+      var ta = document.createElement('textarea');
+      ta.value = t; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      ta.remove(); done();
+    }
+  }
+  function saveOrder() {
+    try {
+      if (order) localStorage.setItem('hz_usdt_order', JSON.stringify(order));
+      else localStorage.removeItem('hz_usdt_order');
+    } catch (e) {}
+  }
+
+  var CSS = '<style>' +
+    '#hzUsdtCard { background:#fff; border:1.5px solid #ECEEF1; border-radius:14px; padding:14px 15px; margin:14px 0 4px; color:#23272F; }' +
+    '#hzUsdtCard .up-title { font-size:14.5px; font-weight:800; margin-bottom:4px; }' +
+    '#hzUsdtCard .up-sub { font-size:12px; color:#6B7280; line-height:1.7; margin-bottom:10px; }' +
+    '#hzUsdtCard .up-plans { display:flex; gap:8px; margin-bottom:10px; }' +
+    '#hzUsdtCard .up-plan { flex:1; background:#F9FAFB; border:1.5px solid #E3E6EB; border-radius:10px; padding:9px 6px; font-size:13px; cursor:pointer; font-family:inherit; color:#23272F; }' +
+    '#hzUsdtCard .up-plan.on { background:#ECFDF5; border-color:#059669; font-weight:700; }' +
+    '#hzUsdtCard .up-go { width:100%; background:#059669; color:#fff; border:none; border-radius:11px; padding:12px; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit; }' +
+    '#hzUsdtCard .up-amount { font-size:24px; font-weight:800; text-align:center; direction:ltr; margin:8px 0 2px; }' +
+    '#hzUsdtCard .up-row { display:flex; align-items:center; gap:8px; background:#F9FAFB; border:1px solid #ECEEF1; border-radius:10px; padding:8px 10px; margin-top:8px; }' +
+    '#hzUsdtCard .up-row code { flex:1; font-size:11.5px; word-break:break-all; direction:ltr; text-align:left; }' +
+    '#hzUsdtCard .up-copy { background:#fff; border:1.5px solid #E3E6EB; border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer; font-family:inherit; flex-shrink:0; }' +
+    '#hzUsdtCard .up-status { font-size:12.5px; text-align:center; margin-top:10px; color:#374151; line-height:1.8; }' +
+    '#hzUsdtCard .up-code { font-size:16px; font-weight:800; text-align:center; direction:ltr; background:#ECFDF5; border-radius:10px; padding:10px; margin-top:8px; letter-spacing:.5px; }' +
+    '#hzUsdtCard .up-act { width:100%; background:#4F46E5; color:#fff; border:none; border-radius:11px; padding:12px; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit; margin-top:10px; }' +
+    '#hzUsdtCard .up-new { width:100%; background:none; border:none; color:#6B7280; font-size:12.5px; cursor:pointer; font-family:inherit; margin-top:8px; text-decoration:underline; }' +
+    '</style>';
+
+  function render(card) {
+    var h = CSS + '<div class="up-title">💵 Pay with USDT</div>' +
+      '<div class="up-sub">Pay with USDT on the <b>BNB Smart Chain (BEP20)</b> network. Your licence code is issued automatically once the transfer is confirmed (about a minute).</div>';
+    if (!order) {
+      h += '<div class="up-plans">' + PLANS.map(function (p) {
+        return '<button type="button" class="up-plan' + (plan === p.id ? ' on' : '') + '" data-up-plan="' + p.id + '">' + p.label + '<br><small>' + p.days + '</small></button>';
+      }).join('') + '</div>' +
+        '<button type="button" class="up-go" id="upCreate">Create payment order</button>' +
+        '<div class="up-status" id="upStatus"></div>';
+      card.innerHTML = h;
+      Array.prototype.forEach.call(card.querySelectorAll('[data-up-plan]'), function (b) {
+        b.addEventListener('click', function () { plan = b.getAttribute('data-up-plan'); render(card); });
+      });
+      card.querySelector('#upCreate').addEventListener('click', function () { createOrder(card); });
+    } else if (order.status === 'paid') {
+      h += '<div class="up-status">✅ Payment confirmed. Your licence code:</div>' +
+        '<div class="up-code">' + esc(order.code || '') + '</div>' +
+        '<button type="button" class="up-act" id="upActivate">Activate now on this device</button>' +
+        '<div class="up-status" id="upStatus">Keep this code — it also works later from the activation box above.</div>' +
+        '<button type="button" class="up-new" id="upNew">Start a new order</button>';
+      card.innerHTML = h;
+      card.querySelector('#upActivate').addEventListener('click', function () { activate(card); });
+      card.querySelector('#upNew').addEventListener('click', function () { order = null; saveOrder(); render(card); });
+    } else {
+      h += '<div class="up-sub" style="margin-bottom:2px">Send exactly this amount:</div>' +
+        '<div class="up-amount">' + esc(order.amount) + ' USDT</div>' +
+        '<div class="up-row"><code>' + esc(order.address) + '</code><button type="button" class="up-copy" data-up-copy="' + esc(order.address) + '">Copy</button></div>' +
+        '<div class="up-row"><code>' + esc(order.amount) + '</code><button type="button" class="up-copy" data-up-copy="' + esc(order.amount) + '">Copy</button></div>' +
+        '<div class="up-status" id="upStatus">⏳ Waiting for your transfer… send the exact amount (the small fraction identifies your order). The order stays valid for about an hour.</div>' +
+        '<button type="button" class="up-new" id="upCancel">Cancel this order</button>';
+      card.innerHTML = h;
+      Array.prototype.forEach.call(card.querySelectorAll('[data-up-copy]'), function (b) {
+        b.addEventListener('click', function () { copyText(b.getAttribute('data-up-copy'), b); });
+      });
+      card.querySelector('#upCancel').addEventListener('click', function () { stopPoll(); order = null; saveOrder(); render(card); });
+      startPoll(card);
+    }
+  }
+
+  function createOrder(card) {
+    var st = card.querySelector('#upStatus');
+    if (st) st.textContent = 'Creating order…';
+    fetch(API + '/api/pay/create', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ plan: plan })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (!j.order_id) throw new Error(j.error || 'failed');
+      order = { id: j.order_id, amount: j.amount, address: j.address, plan: j.plan, status: 'pending' };
+      saveOrder();
+      render(card);
+    }).catch(function () {
+      if (st) st.textContent = 'Could not create the order — check your connection and try again.';
+    });
+  }
+
+  function startPoll(card) {
+    stopPoll();
+    pollTimer = setInterval(function () { checkStatus(card); }, 15000);
+    checkStatus(card);
+  }
+  function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+  function checkStatus(card) {
+    if (!order) { stopPoll(); return; }
+    fetch(API + '/api/pay/status?id=' + encodeURIComponent(order.id)).then(function (r) { return r.json(); }).then(function (j) {
+      if (!document.body.contains(card)) { stopPoll(); return; }
+      if (j.status === 'paid') {
+        order.status = 'paid'; order.code = j.code; saveOrder(); stopPoll(); render(card);
+      } else if (j.status === 'expired') {
+        var st = card.querySelector('#upStatus');
+        if (st) st.textContent = '⌛ This order expired. Create a new one if you still want to pay.';
+        stopPoll();
+      }
+    }).catch(function () {});
+  }
+
+  function activate(card) {
+    var st = card.querySelector('#upStatus');
+    if (!window.__hzLicFetch || !window.__hzAiDeviceId) { if (st) st.textContent = 'Activation is not available in this build — paste the code in the activation box above.'; return; }
+    if (st) st.textContent = 'Activating…';
+    window.__hzLicFetch('/api/activate', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: order.code, device_id: window.__hzAiDeviceId() })
+    }).then(function (r) { return r.json().then(function (v) { return { status: r.status, v: v }; }); }).then(function (res) {
+      if (res.status === 200 && res.v.token) {
+        try { localStorage.setItem('hz_license', JSON.stringify({ token: res.v.token, plan: res.v.plan, expires_at: res.v.expires_at })); } catch (e) {}
+        if (window.__hzRefreshLicense) window.__hzRefreshLicense();
+        if (st) st.textContent = '🎉 Subscription active. Enjoy LYMLA Pro!';
+        var b = card.querySelector('#upActivate'); if (b) b.style.display = 'none';
+      } else {
+        if (st) st.textContent = 'Activation failed (' + (res.v.error || res.status) + ') — paste the code in the activation box above instead.';
+      }
+    }).catch(function () {
+      if (st) st.textContent = 'Activation could not reach the server — paste the code in the activation box above.';
+    });
+  }
+
+  function ensureCard() {
+    try {
+      var panel = document.getElementById('hzSubPanel');
+      if (!panel || document.getElementById('hzUsdtCard')) return;
+      var card = document.createElement('div');
+      card.id = 'hzUsdtCard';
+      card.setAttribute('data-noi18n', '');
+      panel.appendChild(card);
+      render(card);
+    } catch (e) {}
+  }
+  setInterval(ensureCard, 1200);
+})();
+</script>
 
 <style>
 #hzByokOv { position: fixed; inset: 0; z-index: 10070; background: rgba(10,10,14,.55); display: none; align-items: flex-end; justify-content: center; }

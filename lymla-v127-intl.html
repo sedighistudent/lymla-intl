@@ -17433,8 +17433,15 @@ html[data-theme="dark"] #hzStreak { color: #F4F4F5; }
 (function () {
   'use strict';
   window.__HZ_V127 = true;
-  var css = ''
-    + '#hzMoreSheet #hzSheetStudyRow, #hzMoreSheet #hzSheetChallengeRow{display:flex!important}';
+  /* The Study row is restored in every build. The Challenge row only in
+     non-intl builds: the Pronunciation Challenge is Iran-only (its backend
+     runs on the standby) and is excluded from the international build by
+     Sa's decision — there the v100 rule keeps it hidden. HZ_INTL_BUILD is
+     injected at <head> by build_intl.py, before this module runs. */
+  var css = '#hzMoreSheet #hzSheetStudyRow{display:flex!important}';
+  if (!window.HZ_INTL_BUILD) {
+    css += '#hzMoreSheet #hzSheetChallengeRow{display:flex!important}';
+  }
   var st = document.createElement('style');
   st.id = 'hzV127Style';
   st.textContent = css;
